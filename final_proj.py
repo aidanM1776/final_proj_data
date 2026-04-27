@@ -3,6 +3,7 @@ import matplotlib.animation as anim
 import numpy as np
 import mne
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
 # Create raw object from PSG edf data
 # raw has diff channels, number of time points, time points, and duration of the data
@@ -61,12 +62,14 @@ class_map = {
 X = epochs.get_data()
 Y = np.array([class_map.get(i,i) for i in labels])
 
+X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+
 print(X.shape)
 print(Y.shape)
+print(X_train.shape)
+print(y_train.shape)
 
 fig, (ax1, ax2) = plt.subplots(2, 1)
-#epochs.plot(n_epochs=436, n_channels=4)
-#psd.plot(spatial_colors=True, dB=True)
 
 # Plot of first epoch (30 seconds) for 4 channels over time
 data = X[0]
@@ -89,3 +92,6 @@ ax2.legend(psd.ch_names)
 
 plt.tight_layout()
 plt.show()
+
+# NEXT: Use the X_train and y_train to train a model (ex. stack random forest + xgboost)
+# Should shoot for at least 90% accuracy
