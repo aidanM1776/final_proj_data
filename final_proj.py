@@ -67,6 +67,9 @@ raw3.set_channel_types({'EOG horizontal':'eog','EMG submental':'emg'})
 raw4 = mne.io.read_raw_edf(f'{project_destination}/SC4012E0-PSG.edf', exclude=('Resp oro-nasal', 'Temp rectal','Event marker'))
 raw4.set_channel_types({'EOG horizontal':'eog','EMG submental':'emg'})
 
+raw5 = mne.io.read_raw_edf(f'{project_destination}/SC4022E0-PSG.edf', exclude=('Resp oro-nasal', 'Temp rectal','Event marker'))
+raw5.set_channel_types({'EOG horizontal':'eog','EMG submental':'emg'})
+
 ## Testing data not used for training the model, just to see how it performs on new data
 test_raw1 = mne.io.read_raw_edf(f'{project_destination}/SC4021E0-PSG.edf', exclude=('Resp oro-nasal', 'Temp rectal','Event marker'))
 test_raw1.set_channel_types({'EOG horizontal':'eog','EMG submental':'emg'})
@@ -84,12 +87,14 @@ raw3.set_annotations(ann3)
 ann4 = mne.read_annotations(f'{project_destination}/SC4012EC-Hypnogram.edf')
 raw4.set_annotations(ann4)
 
+ann5 = mne.read_annotations(f'{project_destination}/SC4022EJ-Hypnogram.edf')
+raw5.set_annotations(ann5)
+
 ## For the test data
 test_ann1 = mne.read_annotations(f'{project_destination}/SC4021EH-Hypnogram.edf')
 test_raw1.set_annotations(test_ann1)
 
-
-raw = mne.concatenate_raws([raw1, raw2, raw3, raw4]) # Data used to train the model
+raw = mne.concatenate_raws([raw1, raw2, raw3, raw4, raw5]) # Data used to train the model
 raw.resample(100.0, npad='auto')  # lower sampling rate before epoching to speed processing
 
 # Epoch object has an (X,Y,Z) numpy matrix
@@ -99,14 +104,6 @@ raw.resample(100.0, npad='auto')  # lower sampling rate before epoching to speed
 epochs = mne.make_fixed_length_epochs(raw, duration=30.0, preload=True)
 
 psd = epochs.compute_psd(fmin=0.5, fmax=30, picks=['eeg', 'eog', 'emg'])
-
-
-## OLD WAY OF GETTING LABELS
-# # get labels and match length to epochs
-# labels = raw.annotations.description
-# n = min(len(epochs), len(labels))
-# epochs = epochs[:n]
-# labels = labels[:n]
 
 ##  NEW WAY THAT MATCHES EPOCHS TO ANNOTATIONS
 def stage_at_time(t, ann):
@@ -125,7 +122,6 @@ class_map = {
     'Sleep stage 3': 3,
     'Sleep stage 4': 3,
     'Sleep stage R': 4,
-    #'Sleep stage ?': 5, # this needs to be added for unknown sleep stages ??
 }
 
 X = epochs.get_data()
@@ -133,7 +129,6 @@ Y = np.array([class_map.get(i,i) for i in labels])
 
 print(X.shape)
 print(Y.shape)
-
 
 ## XGBoost Classifier
 X_data = epochs.get_data()
@@ -168,7 +163,6 @@ model.fit(X_train, y_train)
 y_pred = model.predict(X_test)
 accuracy = accuracy_score(y_test, y_pred)
 print(f'XGBoost Classifier Accuracy: {accuracy:.4f}')
-print(classification_report(y_test, y_pred))
 
 ## Cross-validation with XGBoost and StratifiedKFold
 cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
@@ -204,21 +198,40 @@ test_features_df = pd.DataFrame(test_feature_rows)
 test_y_pred = cv_model.predict(test_features_df.drop(columns=['time']))
 test_accuracy = accuracy_score(test_y, test_y_pred)
 print(f'Test Accuracy: {test_accuracy:.4f}')
-#print(classification_report(test_y, test_y_pred))
 
 
 # ------------------------------------------HYPNOGRAM CREATION-------------------------------------
 # replace annotations (strings) with integers for yasa.from_integers function
-true_hypnogram = np.array([class_map.get(i,i) for i in test_ann1.description])
+#true_hypnogram = np.array([class_map.get(i,i) for i in test_ann1.description])
 
 # replace unknown sleep stages with
-true_hypnogram = [-2 if x == 'Sleep stage ?' else x for x in true_hypnogram]
+#true_hypnogram = [-2 if x == 'Sleep stage ?' else x for x in true_hypnogram]
 
 print(test_y_pred.shape)
 print(test_y.shape)
-print(len(true_hypnogram))
+#print(len(true_hypnogram))
 
 # plot correct hypnogram
-hyp2 = Hypnogram.from_integers(test_y)
+hyp2 = Hypnogram.from_integers(test_y) # or use test_y_pred to see model predicted hypnogram
 hyp2.plot_hypnogram()
+plt.show()
+
+# ------------------------------------------CONFUSION MATRIX-------------------------------------------
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+cm = confusion_matrix(test_y, test_y_pred)
+classes = np.unique(np.concatenate([test_y, test_y_pred]))
+
+stage_names = {
+    0: 'W',
+    1: 'N1',
+    2: 'N2',
+    3: 'N3',
+    4: 'REM'
+}
+labels = [stage_names[c] for c in classes]
+
+fig, ax = plt.subplots(figsize=(8, 6))
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
+disp.plot(cmap='Blues', ax=ax, xticks_rotation=45)
 plt.show()
